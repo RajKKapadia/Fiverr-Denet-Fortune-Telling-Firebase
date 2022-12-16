@@ -1,5 +1,7 @@
 const { Firestore } = require('@google-cloud/firestore');
-require('dotenv').config()
+const { initializeApp, cert } = require('firebase-admin/app');
+const { getStorage } = require('firebase-admin/storage');
+require('dotenv').config();
 
 
 const CREDENTIALS = JSON.parse(process.env.CREDENTIALS);
@@ -14,11 +16,89 @@ const firestore = new Firestore({
 });
 
 
+initializeApp({
+    credential: cert(CREDENTIALS)
+});
+
+
 const userInformation = firestore.collection('userInformation');
 const unregisteredUsers = firestore.collection('unregisteredUsers');
+const selfieBucket = getStorage().bucket('fortune-teller-coffee.appspot.com');
 
 
-const createDocument = async (user) => {
+const uploadImage = async (imagePath, destination) => {
+
+    try {
+        let response = await selfieBucket.upload(
+            imagePath,
+            {
+                destination: destination,
+                metadata: {
+                    cacheControl: "public, max-age=315360000",
+                    contentType: "image/jpeg"
+                }
+            }
+        );
+
+        return {
+            status: 1,
+            response: response['1'],
+            message: 'Success'
+        };
+    } catch (error) {
+        return {
+            status: 0,
+            response: {},
+            message: error.message
+        };
+    }
+};
+
+
+const checkRegistration = async (email, password) => {
+
+    try {
+        let querySnapshot = await userInformation
+            .where('email', '==', email)
+            .get();
+        if (querySnapshot.empty) {
+            return {
+                status: 0,
+                docs: []
+            };
+        } else {
+            let docs = []
+            querySnapshot.forEach(QueryDocumentSnapshot => {
+                let tempData = QueryDocumentSnapshot.data();
+                console.log(tempData);
+                if (tempData.password === password) {
+                    tempData['id'] = QueryDocumentSnapshot.id;
+                    docs.push(tempData);
+                }
+            });
+            if (docs.length != 0) {
+                return {
+                    status: 1,
+                    docs: docs
+                };
+            } else {
+                return {
+                    status: 0,
+                    docs: []
+                };
+            }
+        }
+    } catch (error) {
+        console.log(`Error at getDocuments --> ${error.message}`);
+        return {
+            status: -1,
+            docs: []
+        };
+    }
+};
+
+
+const createUser = async (user) => {
 
     try {
         let record = await userInformation.add(user);
@@ -36,110 +116,8 @@ const createDocument = async (user) => {
 };
 
 
-const getDocuments = async () => {
-
-    try {
-        let querySnapshot = await userInformation.get();
-        if (querySnapshot.empty) {
-            return {
-                status: -1,
-                docs: []
-            };
-        } else {
-            let docs = []
-            querySnapshot.forEach(QueryDocumentSnapshot => {
-                let tempData = QueryDocumentSnapshot.data();
-                tempData['id'] = QueryDocumentSnapshot.id;
-                docs.push(tempData);
-            });
-            return {
-                status: 1,
-                docs: docs
-            };
-        }
-    } catch (error) {
-        console.log(`Error at getDocuments --> ${error}`);
-        return {
-            status: 0,
-            docs: []
-        };
-    }
-};
-
-
-const getDocumentsWithWhere = async (key, value, condition) => {
-
-    try {
-        let querySnapshot = await userInformation
-            .where(key, condition, value)
-            .get();
-        if (querySnapshot.empty) {
-            return {
-                status: -1,
-                docs: []
-            };
-        } else {
-            let docs = []
-            querySnapshot.forEach(QueryDocumentSnapshot => {
-                let tempData = QueryDocumentSnapshot.data();
-                tempData['id'] = QueryDocumentSnapshot.id;
-                docs.push(tempData);
-            });
-            return {
-                status: 1,
-                docs: docs
-            };
-        }
-    } catch (error) {
-        console.log(`Error at getDocuments --> ${error}`);
-        return {
-            status: 0,
-            docs: []
-        };
-    }
-};
-
-
-const updateDocument = async (id, update) => {
-
-    try {
-        await userInformation
-            .doc(id)
-            .set(update, { merge: true });
-        return {
-            status: 1
-        };
-    } catch (error) {
-        console.log(`Error at updateDocument --> ${error}`);
-        return {
-            status: 0
-        };
-    }
-};
-
-
-const deleteDocument = async (id) => {
-
-    try {
-        await userInformation
-            .doc(id)
-            .delete();
-        return {
-            status: 1
-        };
-    } catch (error) {
-        console.log(`Error at deleteDocument --> ${error}`);
-        return {
-            status: 0
-        };
-    }
-};
-
-
 module.exports = {
-    createDocument,
-    getDocuments,
-    getDocumentsWithWhere,
-    updateDocument,
-    deleteDocument
+    uploadImage,
+    checkRegistration,
+    createUser
 };
